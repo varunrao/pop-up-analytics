@@ -122,10 +122,7 @@ def delete_stack_if_exists(connection, stackname):
 if __name__ == "__main__":
     event = {}
 
-    event['filename'] = '/Users/vbhamidi/IdeaProjects/TIPopUpAnalytics/cloudformation/pop-up-analytics-portfolio.template'
-    event['parameters'] = '/Users/vbhamidi/IdeaProjects/TIPopUpAnalytics/cfparameters/sc-portfolio.json'
-
-    # event['filename'] = '/Users/vbhamidi/IdeaProjects/TIPopUpAnalytics/cloudformation/master.template'
-    # event['parameters'] = '/Users/vbhamidi/IdeaProjects/TIPopUpAnalytics/cfparameters/master-parameters.json'
+    event['filename'] = '<path to template>'
+    event['parameters'] = '<path to parameters>'
 
     lambda_handler(event, None)
