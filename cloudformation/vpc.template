@@ -1,0 +1,301 @@
+Description: >
+    This template deploys a VPC, a public subnet with an Internet Gateway, a private subnet with a NAT gateway
+    for Internet access, and default routes.
+
+Parameters:
+
+    EnvironmentName:
+        Description: An environment name that will be prefixed to resource names
+        Type: String
+
+    VpcCIDR: 
+        Description: Please enter the IP range (CIDR notation) for this VPC
+        Type: String
+        Default: 10.192.0.0/16
+
+    PublicSubnetCIDR:
+        Description: Please enter the IP range (CIDR notation) for the public subnet
+        Type: String
+        Default: 10.192.10.0/24
+
+    PrivateSubnetCIDR:
+        Description: Please enter the IP range (CIDR notation) for the private subnet in the first Availability Zone
+        Type: String
+        Default: 10.192.20.0/24
+
+    KeyName:
+      Description: SSH key (for access to bastion and EMR instances)
+      Type: AWS::EC2::KeyPair::KeyName
+      Default: qwiklabskey
+
+#    OutputBucket:
+#        Description: Enter a unique name for S3 bucket to hold EMR cluster logs
+#        Type: String
+
+Mappings:
+  Region2AMI:
+    ap-south-1:
+      AmazonLinux: ami-531a4c3c
+    eu-west-3:
+      AmazonLinux: ami-8ee056f3
+    eu-west-2:
+      AmazonLinux: ami-403e2524
+    eu-west-1:
+      AmazonLinux: ami-d834aba1
+    ap-northeast-3:
+      AmazonLinux: ami-83444afe
+    ap-northeast-2:
+      AmazonLinux: ami-863090e8
+    ap-northeast-1:
+      AmazonLinux: ami-ceafcba8
+    sa-east-1:
+      AmazonLinux: ami-84175ae8
+    ca-central-1:
+      AmazonLinux: ami-a954d1cd
+    ap-southeast-1:
+      AmazonLinux: ami-68097514
+    ap-southeast-2:
+      AmazonLinux: ami-942dd1f6
+    eu-central-1:
+      AmazonLinux: ami-5652ce39
+    us-east-1:
+      AmazonLinux: ami-97785bed
+    us-east-2:
+      AmazonLinux: ami-f63b1193
+    us-west-1:
+      AmazonLinux: ami-824c4ee2
+    us-west-2:
+      AmazonLinux: ami-f2d3638a
+
+Resources:
+
+    VPC: 
+        Type: AWS::EC2::VPC
+        Properties:
+            CidrBlock: !Ref VpcCIDR
+            EnableDnsHostnames: true
+            Tags:
+                - Key: Name
+                  Value: !Ref EnvironmentName
+
+            
+    InternetGateway:
+            Type: AWS::EC2::InternetGateway
+            Properties:
+                Tags:
+                    - Key: Name
+                      Value: !Ref EnvironmentName
+        
+            
+    InternetGatewayAttachment:
+        Type: AWS::EC2::VPCGatewayAttachment
+        Properties:
+            InternetGatewayId: !Ref InternetGateway
+            VpcId: !Ref VPC
+
+    PublicSubnet: 
+        Type: AWS::EC2::Subnet
+        Properties:
+            VpcId: !Ref VPC
+            AvailabilityZone: !Select [ 0, !GetAZs '' ]
+            CidrBlock: !Ref PublicSubnetCIDR
+            MapPublicIpOnLaunch: true
+            Tags: 
+                - Key: Name 
+                  Value: !Sub ${EnvironmentName} Public Subnet
+
+
+    PrivateSubnet:
+        Type: AWS::EC2::Subnet
+        Properties:
+            VpcId: !Ref VPC
+            AvailabilityZone: !Select [ 0, !GetAZs '' ]
+            CidrBlock: !Ref PrivateSubnetCIDR
+            MapPublicIpOnLaunch: false
+            Tags: 
+                - Key: Name 
+                  Value: !Sub ${EnvironmentName} Private Subnet
+
+
+    NatGatewayEIP:
+        Type: AWS::EC2::EIP
+        DependsOn: InternetGatewayAttachment
+        Properties: 
+            Domain: vpc
+
+
+    NatGateway:
+        Type: AWS::EC2::NatGateway
+        Properties: 
+            AllocationId: !GetAtt NatGatewayEIP.AllocationId
+            SubnetId: !Ref PublicSubnet
+
+
+    PublicRouteTable:
+        Type: AWS::EC2::RouteTable
+        Properties: 
+            VpcId: !Ref VPC
+            Tags: 
+                - Key: Name 
+                  Value: !Sub ${EnvironmentName} Public Routes
+
+    DefaultPublicRoute: 
+        Type: AWS::EC2::Route
+        DependsOn: InternetGatewayAttachment
+        Properties: 
+            RouteTableId: !Ref PublicRouteTable
+            DestinationCidrBlock: 0.0.0.0/0
+            GatewayId: !Ref InternetGateway
+
+    PublicSubnetRouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            RouteTableId: !Ref PublicRouteTable
+            SubnetId: !Ref PublicSubnet
+    
+
+    PrivateRouteTable:
+        Type: AWS::EC2::RouteTable
+        Properties: 
+            VpcId: !Ref VPC
+            Tags: 
+                - Key: Name 
+                  Value: !Sub ${EnvironmentName} Private Routes
+
+    DefaultPrivateRoute:
+        Type: AWS::EC2::Route
+        Properties:
+            RouteTableId: !Ref PrivateRouteTable
+            DestinationCidrBlock: 0.0.0.0/0
+            NatGatewayId: !Ref NatGateway
+
+    PrivateSubnetRouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            RouteTableId: !Ref PrivateRouteTable
+            SubnetId: !Ref PrivateSubnet
+
+
+    OutputS3Bucket:
+        Type: "AWS::S3::Bucket"
+        #DeletionPolicy: Retain
+        #Properties:
+        #  BucketName: !Join ['', ['sparkml-sagemaker-workshop', '-', !Ref 'AWS::StackId']]
+
+    DataOutputBucket:
+      Properties:
+        ServiceToken: !GetAtt DeleteS3ObjectsFunction.Arn
+        s3bucketName: !Ref OutputS3Bucket
+      Type: "AWS::CloudFormation::CustomResource"
+
+    S3DeleteRole:
+      Type: AWS::IAM::Role
+      Properties:
+
+        Path: /spark-sagemaker/
+        AssumeRolePolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            -
+              Effect: Allow
+              Principal:
+                Service: lambda.amazonaws.com
+              Action: sts:AssumeRole
+        Policies:
+          -
+            PolicyName: S3Access
+            PolicyDocument:
+              Version: 2012-10-17
+              Statement:
+                -
+                  Sid: AllowLogging
+                  Effect: Allow
+                  Action:
+                    - "logs:CreateLogGroup"
+                    - "logs:CreateLogStream"
+                    - "logs:PutLogEvents"
+                  Resource: "*"
+                -
+                  Sid: SourceBucketReadAccess
+                  Effect: Allow
+                  Action:
+                    - "s3:ListBucket"
+                    - "s3:GetObject"
+                  Resource:
+                    - !Sub "arn:aws:s3:::${OutputS3Bucket}"
+                    - !Sub "arn:aws:s3:::${OutputS3Bucket}/*"
+                -
+                  Sid: DestBucketWriteAccess
+                  Effect: Allow
+                  Action:
+                    - "s3:ListBucket"
+                    - "s3:GetObject"
+                    - "s3:PutObject"
+                    - "s3:PutObjectAcl"
+                    - "s3:PutObjectVersionAcl"
+                    - "s3:DeleteObject"
+                    - "s3:DeleteObjectVersion"
+                  Resource:
+                    - !Sub "arn:aws:s3:::${OutputS3Bucket}"
+                    - !Sub "arn:aws:s3:::${OutputS3Bucket}/*"
+
+    DeleteS3ObjectsFunction:
+        Type: AWS::Lambda::Function
+        DependsOn: OutputS3Bucket
+        Properties:
+          Description: Deletes objects from the S3 bucket for stack deletion
+          Handler: index.handler
+          Runtime: python3.7
+          Role: !GetAtt S3DeleteRole.Arn
+          Timeout: 120
+          Code:
+            ZipFile: |
+              import cfnresponse
+              import boto3
+              def handler(event, context):
+                  print(event)
+                  print('boto version ' + boto3.__version__)
+                  # Globals
+                  responseData = {}
+                  ResponseStatus = cfnresponse.SUCCESS
+                  if 's3bucketName' in event['ResourceProperties']:
+                    s3bucketName = event['ResourceProperties']['s3bucketName']
+                    if event['RequestType'] == 'Create':
+                        responseData['Message'] = "Resource creation successful!"
+                    elif event['RequestType'] == 'Update':
+                        responseData['Message'] = "Resource update successful!"
+                    elif event['RequestType'] == 'Delete':
+                        # Need to empty the S3 bucket before it is deleted
+                        s3 = boto3.resource('s3')
+                        bucket = s3.Bucket(s3bucketName)
+                        bucket.objects.all().delete()
+                        responseData['Message'] = "Resource deletion successful!"
+                  cfnresponse.send(event, context, ResponseStatus, responseData)
+Outputs:
+
+    VPC: 
+        Description: A reference to the created VPC
+        Value: !Ref VPC
+        Export:
+            Name: SparkSagemaker-VPC
+
+    PublicSubnet:
+        Description: Public subnet
+        Value: !Ref PublicSubnet
+        Export:
+          Name: SparkSagemaker-PublicSubnet
+
+    PrivateSubnet:
+        Description: Private subnet
+        Value: !Ref PrivateSubnet
+        Export:
+          Name: SparkSagemaker-PrivateSubnet
+
+
+    OutputS3Bucket:
+      Description: S3 bucket
+      Value: !Ref OutputS3Bucket
+      Export:
+          Name: SparkSagemaker-OutputS3Bucket
+
+

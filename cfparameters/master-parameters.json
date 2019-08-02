@@ -1,0 +1,7 @@
+{
+  "StackName" : "SparkSagemakerLab1",
+  "Parameters": {
+    "EnvironmentName" : "sparkml-sagemaker-workshop",
+    "KeyName": "key-account4"
+  }
+}

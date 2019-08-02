@@ -1,0 +1,167 @@
+Description: >
+  This template will deploy Sagemaker notebook instance will also be configured with access to EMR.
+
+Parameters:
+
+  EnvironmentName:
+    Description: An environment name that will be prefixed to resource names
+    Type: String
+
+  Vpc:
+    Description: VPC Id
+    Type: String
+    Default: ''
+
+  PublicSubnet:
+    Description: Public Subnet ID for Bastion instance
+    Type: String
+    Default: ''
+
+  NotebookInstanceType:
+        Description: Notebook instance type
+        Type: String
+        Default: ml.m4.2xlarge
+
+Conditions:
+  VPCParamExists: !Not [ !Equals [!Ref Vpc, '']]
+  PublicSubnetParamExists: !Not [ !Equals [!Ref PublicSubnet, '']]
+
+Resources:
+
+  SagemakerRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "sagemaker.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AmazonSageMakerFullAccess"
+        - "arn:aws:iam::aws:policy/AmazonKinesisFullAccess"
+        - 'arn:aws:iam::aws:policy/AWSLambdaFullAccess'
+        - 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess'
+        - "arn:aws:iam::aws:policy/AmazonKinesisFirehoseFullAccess"
+        - "arn:aws:iam::aws:policy/AmazonAthenaFullAccess"
+
+  SagemakerLifecycleConfig:
+    Type: "AWS::SageMaker::NotebookInstanceLifecycleConfig"
+    Properties:
+      NotebookInstanceLifecycleConfigName: !Sub ${EnvironmentName}LifecycleConfig
+      OnStart:
+        - Content:
+            Fn::Base64: !Sub
+            - |
+              # Fix issue with Pandas, see https://github.com/jupyter-incubator/sparkmagic/issues/458
+              pip install pandas==0.22.0
+              # Update config file with DNS name of EMR cluster
+              cat >/home/ec2-user/.sparkmagic/config.json <<EOL
+              {
+                "kernel_python_credentials" : {
+                  "username": "",
+                  "password": "",
+                  "url": "http://${EmrClusterMasterPublicDNS}:8998",
+                  "auth": "None"
+                },
+
+                "kernel_scala_credentials" : {
+                  "username": "",
+                  "password": "",
+                  "url": "http://${EmrClusterMasterPublicDNS}:8998",
+                  "auth": "None"
+                },
+                "kernel_r_credentials": {
+                  "username": "",
+                  "password": "",
+                  "url": "http://${EmrClusterMasterPublicDNS}:8998"
+                },
+
+                "logging_config": {
+                  "version": 1,
+                  "formatters": {
+                    "magicsFormatter": {
+                      "format": "%(asctime)s\t%(levelname)s\t%(message)s",
+                      "datefmt": ""
+                    }
+                  },
+                  "handlers": {
+                    "magicsHandler": {
+                      "class": "hdijupyterutils.filehandler.MagicsFileHandler",
+                      "formatter": "magicsFormatter",
+                      "home_path": "~/.sparkmagic"
+                    }
+                  },
+                  "loggers": {
+                    "magicsLogger": {
+                      "handlers": ["magicsHandler"],
+                      "level": "DEBUG",
+                      "propagate": 0
+                    }
+                  }
+                },
+
+                "wait_for_idle_timeout_seconds": 15,
+                "livy_session_startup_timeout_seconds": 60,
+
+                "fatal_error_suggestion": "The code failed because of a fatal error:\n\t{}.\n\nSome things to try:\na) Make sure Spark has enough available resources for Jupyter to create a Spark context.\nb) Contact your Jupyter administrator to make sure the Spark magics library is configured correctly.\nc) Restart the kernel.",
+
+                "ignore_ssl_errors": false,
+
+                "session_configs": {
+                  "driverMemory": "1000M",
+                  "executorCores": 16,
+                  "executorMemory":"10G"
+                },
+
+                "use_auto_viz": true,
+                "coerce_dataframe": true,
+                "max_results_sql": 2500,
+                "pyspark_dataframe_encoding": "utf-8",
+
+                "heartbeat_refresh_seconds": 30,
+                "livy_server_heartbeat_timeout_seconds": 0,
+                "heartbeat_retry_seconds": 10,
+
+                "server_extension_default_kernel_name": "pysparkkernel",
+                "custom_headers": {},
+
+                "retry_policy": "configurable",
+                "retry_seconds_to_sleep_list": [0.2, 0.5, 1, 3, 5],
+                "configurable_retry_policy_max_retries": 8
+              }
+              EOL
+            - EmrClusterMasterPublicDNS:
+                Fn::ImportValue: EmrMasterNodeDns
+  SagemakerNotebookInstance:
+    Type: "AWS::SageMaker::NotebookInstance"
+    DependsOn:
+      - SagemakerLifecycleConfig
+    Properties:
+      DirectInternetAccess: Enabled
+      SubnetId: !If [PublicSubnetParamExists, !Ref PublicSubnet, !ImportValue 'SparkSagemaker-PublicSubnet']
+      NotebookInstanceName: !Sub ${EnvironmentName}Notebook
+      InstanceType: !Ref NotebookInstanceType
+      LifecycleConfigName: !GetAtt SagemakerLifecycleConfig.NotebookInstanceLifecycleConfigName
+      RoleArn: !GetAtt SagemakerRole.Arn
+      SecurityGroupIds:
+        - !ImportValue SagemakerSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Sagemaker Notebook
+
+
+Outputs:
+
+
+  SagemakerRoleArn:
+    Description: IAM role name
+    Value: !GetAtt SagemakerRole.Arn
+
+  SagemakerNotebookInstanceName:
+    Description: Name of the sagemaker notebook
+    Value: !GetAtt SagemakerNotebookInstance.NotebookInstanceName

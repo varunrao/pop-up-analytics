@@ -1,0 +1,9 @@
+{
+  "StackName" : "PopUp-Analytics",
+  "Parameters": {
+    "RepoRootURL" : "https://s3.amazonaws.com/pop-up-analytics-us-east-1/cloudformation/",
+    "LinkedRole1" : "",
+    "LinkedRole2" : "",
+    "LaunchRoleName" : ""
+  }
+}

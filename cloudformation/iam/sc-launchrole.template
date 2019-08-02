@@ -1,0 +1,63 @@
+Description: "ServiceCatalog S3 Launch Role. (fdp-1p5s1035s)"
+Resources:
+    SCLaunchRole:
+        Type: 'AWS::IAM::Role'
+        Properties:
+            RoleName: SCLaunchRole
+            ManagedPolicyArns:
+                - arn:aws:iam::aws:policy/AmazonS3FullAccess
+                - arn:aws:iam::aws:policy/AmazonEC2FullAccess
+                - arn:aws:iam::aws:policy/AmazonSSMFullAccess
+                - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+                - arn:aws:iam::aws:policy/AWSLambdaFullAccess
+            AssumeRolePolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                    - Effect: Allow
+                      Principal:
+                          Service:
+                              - servicecatalog.amazonaws.com
+                      Action:
+                          - 'sts:AssumeRole'
+            Path: /
+            Policies:
+                - PolicyName: SCLaunchPolicy
+                  PolicyDocument:
+                      Version: 2012-10-17
+                      Statement:
+                          - Sid: SCLaunchPolicySID
+                            Effect: Allow
+                            Action:
+                                - "servicecatalog:ListServiceActionsForProvisioningArtifact"
+                                - "servicecatalog:ExecuteprovisionedProductServiceAction"
+                                - "iam:ListRolePolicies"
+                                - "iam:ListPolicies"
+                                - "iam:DeleteRole"
+                                - "iam:GetRole"
+                                - "iam:PassRole"
+                                - "iam:ListRoles"
+                                - "iam:CreateRole"
+                                - "iam:DetachRolePolicy"
+                                - "iam:AttachRolePolicy"
+                                - "iam:PutRolePolicy"
+                                - "iam:DeleteRolePolicy"
+                                - "cloudformation:DescribeStackResource"
+                                - "cloudformation:DescribeStackResources"
+                                - "cloudformation:GetTemplate"
+                                - "cloudformation:List*"
+                                - "cloudformation:DescribeStackEvents"
+                                - "cloudformation:DescribeStacks"
+                                - "cloudformation:CreateStack"
+                                - "cloudformation:DeleteStack"
+                                - "cloudformation:DescribeStackEvents"
+                                - "cloudformation:DescribeStacks"
+                                - "cloudformation:GetTemplateSummary"
+                                - "cloudformation:SetStackPolicy"
+                                - "cloudformation:ValidateTemplate"
+                                - "cloudformation:UpdateStack"
+                            Resource: '*'
+Outputs:
+    LaunchRoleArn:
+        Value: !GetAtt SCLaunchRole.Arn
+    LaunchRoleName:
+        Value: !Ref SCLaunchRole

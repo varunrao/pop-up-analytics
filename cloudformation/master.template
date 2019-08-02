@@ -1,0 +1,93 @@
+Description: >
+  This template will deploy an EMR cluster and the necessary security groups. A bastion instance will also be
+  provisioned to allow SSH access. A Sagemaker notebook instance will also be configured with access to EMR.
+
+Parameters:
+
+  EnvironmentName:
+    Description: An environment name that will be prefixed to resource names
+    Type: String
+    MinLength: 1
+    MaxLength: 41
+    AllowedPattern: ^[a-zA-Z0-9-]*$
+    Default: 'pop-up-analytics'
+
+  VpcCIDR:
+    Description: Please enter the IP range (CIDR notation) for the VPC to be created
+    Type: String
+    Default: 10.192.0.0/16
+
+  PublicSubnetCIDR:
+    Description: Please enter the IP range (CIDR notation) for the public subnet
+    Type: String
+    Default: 10.192.10.0/24
+
+  PrivateSubnetCIDR:
+    Description: Please enter the IP range (CIDR notation) for the private subnet in the first Availability Zone
+    Type: String
+    Default: 10.192.20.0/24
+
+  KeyName:
+    Description: SSH key (for access to bastion and EMR instances)
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: qwiklabskey
+
+  S3Bucket:
+    Description: S3 bucket where the Cloudformation/Scripts/config files are placed
+    Type: String
+    Default: pop-up-analytics
+
+  LambdaKinesisEventProcessorS3Key:
+    Type : String
+    Default : functions
+    Description : Name of S3 key for Zip with Stream Processing Kinesis Event Processor Lambda function package.
+
+Resources:
+  VpcStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Join ['', ['https://s3.amazonaws.com/', !Ref 'S3Bucket', '-', !Ref 'AWS::Region', '/cloudformation/vpc.template']]
+      TimeoutInMinutes: '60'
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        VpcCIDR: !Ref VpcCIDR
+        PublicSubnetCIDR: !Ref PublicSubnetCIDR
+        PrivateSubnetCIDR: !Ref PrivateSubnetCIDR
+        KeyName: !Ref KeyName
+
+  EmrStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: VpcStack
+    Properties:
+      TemplateURL: !Join ['', ['https://s3.amazonaws.com/', !Ref 'S3Bucket', '-', !Ref 'AWS::Region', '/cloudformation/emr.template']]
+      TimeoutInMinutes: '60'
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        KeyName: !Ref KeyName
+        Vpc: !GetAtt VpcStack.Outputs.VPC
+        PublicSubnet: !GetAtt VpcStack.Outputs.PublicSubnet
+        S3Bucket: !Ref S3Bucket
+        S3OutputBucket: !GetAtt VpcStack.Outputs.OutputS3Bucket
+  SagemakerStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: EmrStack
+    Properties:
+      TemplateURL: !Join ['', ['https://s3.amazonaws.com/', !Ref 'S3Bucket', '-', !Ref 'AWS::Region', '/cloudformation/sagemaker.template']]
+      TimeoutInMinutes: '60'
+      Parameters:
+        Vpc: !GetAtt VpcStack.Outputs.VPC
+        EnvironmentName: !Ref EnvironmentName
+        PublicSubnet: !GetAtt VpcStack.Outputs.PublicSubnet
+Outputs:
+
+  EmrMasterNodeDns:
+    Description: Public DNS name of the master EMR instance
+    Value: !GetAtt EmrStack.Outputs.EmrMasterNodeDns
+
+  SagemakerRoleArn:
+    Description: IAM role name
+    Value: !GetAtt SagemakerStack.Outputs.SagemakerRoleArn
+
+  SagemakerNotebookInstanceName:
+    Description: Name of the sagemaker notebook
+    Value: !GetAtt SagemakerStack.Outputs.SagemakerNotebookInstanceName
